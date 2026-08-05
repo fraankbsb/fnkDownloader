@@ -1559,5 +1559,3 @@ if __name__ == "__main__":
         print()
     finally:
         input("  Pressione Enter para fechar...")
-
-# teste do vigia automatico
