@@ -1020,31 +1020,35 @@ def _coletar_links_facebook(driver, handle, max_videos=None):
     """
     print(f"\n  🔍  Coletando reels de @{handle} (rolando a pagina)...")
     driver.get(_facebook_url_perfil(handle))
-    time.sleep(3)
+    time.sleep(4)
 
     padrao = re.compile(r'facebook\.com/reel/(\d+)')
     links_vistos = {}
     rolagens_sem_novidade = 0
-    max_rolagens = 60
+    max_rolagens          = 300  # teto de seguranca, na pratica para pelo "sem novidade"
+    limite_sem_novidade   = 10   # so desiste depois de varias rolagens seguidas sem achar nada novo
 
-    for _ in range(max_rolagens):
+    for i in range(max_rolagens):
         for m in padrao.finditer(driver.page_source):
             vid = m.group(1)
             if vid not in links_vistos:
                 links_vistos[vid] = f"https://www.facebook.com/reel/{vid}/"
 
-        print(f"  ✓  {len(links_vistos)} reel(s) encontrados...", end="\r")
+        print(f"  ✓  {len(links_vistos)} reel(s) encontrados... (rolagem {i+1})", end="\r")
 
         if max_videos and len(links_vistos) >= max_videos:
             break
 
         antes = len(links_vistos)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
+        # Rola aos poucos (como um humano rolando) em vez de pular direto pro fim —
+        # o carregamento infinito do Facebook so dispara passando pelas posicoes intermediarias.
+        driver.execute_script("window.scrollBy(0, window.innerHeight * 0.85);")
+        time.sleep(3.5)
 
         if len(links_vistos) == antes:
             rolagens_sem_novidade += 1
-            if rolagens_sem_novidade >= 4:
+            if rolagens_sem_novidade >= limite_sem_novidade:
+                print(f"\n  ℹ️  Parou de carregar novidade apos {limite_sem_novidade} rolagens — fim da lista.")
                 break
         else:
             rolagens_sem_novidade = 0
@@ -1108,7 +1112,7 @@ def baixar_perfil_facebook(item, driver):
             cmd += ["--cookies", str(FACEBOOK_COOKIES_FILE)]
         cmd.append(url)
 
-        r = subprocess.run(cmd, capture_output=True)
+        r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
             baixados += 1
             historico.add(chave)
@@ -1116,7 +1120,9 @@ def baixar_perfil_facebook(item, driver):
                 f.write(chave + "\n")
             print(VERDE(f"  ✓"))
         else:
-            print(ERRO(f"  ✗"))
+            linhas_erro = [l for l in (r.stderr or r.stdout or "").splitlines() if l.strip()]
+            motivo = linhas_erro[-1] if linhas_erro else "erro desconhecido"
+            print(ERRO(f"  ✗  {motivo[:120]}"))
 
     elapsed   = time.time() - inicio
     qtd_total = contar_videos(pasta)
