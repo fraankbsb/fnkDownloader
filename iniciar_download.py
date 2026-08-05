@@ -32,6 +32,32 @@ def _pip(pkg, import_name=None):
         )
         print(f"  ✓  {pkg} instalado!")
 
+def _pip_atualizar(pkg, import_name=None):
+    """Forca atualizacao do pacote (ex: yt-dlp) — sites como Facebook/Instagram/
+    TikTok mudam o layout com frequencia, e uma versao desatualizada do yt-dlp
+    para de conseguir extrair (erro tipico: 'Cannot parse data')."""
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", pkg, "--quiet"],
+        check=False,
+    )
+
+
+def _instalar_curl_cffi():
+    """curl_cffi habilita o --impersonate do yt-dlp (finge ser um Chrome de
+    verdade), o que ajuda o Facebook a nao bloquear/alterar a resposta pro
+    yt-dlp. So versoes 0.10.x-0.15.x sao suportadas pelo yt-dlp atual."""
+    try:
+        import curl_cffi
+        versao = tuple(int(p) for p in curl_cffi.__version__.split(".")[:2])
+        if not ((0, 10) <= versao < (0, 16)):
+            raise ImportError
+    except ImportError:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "curl_cffi>=0.10,<0.16", "--quiet"],
+            check=False,
+        )
+
+
 print("  🔄  Verificando dependencias...")
 _pip("requests")
 _pip("selenium")
@@ -42,6 +68,7 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
 
@@ -343,6 +370,28 @@ def _injetar_cookies(driver, cookies_path):
                 pass
     except Exception as e:
         print(f"  ⚠️  Erro ao ler cookies: {e}")
+
+
+def _exportar_cookies_sessao(driver, destino):
+    """Exporta os cookies da sessao ATUAL do Selenium (ja logada) num arquivo
+    formato Netscape, pra passar pro yt-dlp via --cookies — evita depender de
+    um cookies.txt exportado manualmente, ja que o Chrome mantem a sessao viva
+    no perfil persistente (ver PERFIS_CHROME_DIR)."""
+    linhas = ["# Netscape HTTP Cookie File"]
+    for c in driver.get_cookies():
+        dominio = c.get("domain", "")
+        if dominio and not dominio.startswith("."):
+            dominio = "." + dominio
+        linhas.append("\t".join([
+            dominio,
+            "TRUE",
+            c.get("path", "/"),
+            "TRUE" if c.get("secure") else "FALSE",
+            str(int(c["expiry"])) if c.get("expiry") else "0",
+            c["name"],
+            c["value"],
+        ]))
+    destino.write_text("\n".join(linhas) + "\n", encoding="utf-8")
 
 
 def _get_cookies_dict(cookies_file):
@@ -838,7 +887,7 @@ def baixar_perfil_tiktok(item):
     inicio = time.time()
 
     # Usa yt-dlp diretamente para baixar (mais confiável para TikTok)
-    _pip("yt-dlp", "yt_dlp")
+    _pip_atualizar("yt-dlp", "yt_dlp")
 
     cmd = [
         sys.executable, "-m", "yt_dlp",
@@ -946,7 +995,7 @@ def baixar_perfil_youtube(item):
 
     inicio = time.time()
 
-    _pip("yt-dlp", "yt_dlp")
+    _pip_atualizar("yt-dlp", "yt_dlp")
 
     abas = ["videos", "shorts"] if tipo == "ambos" else [tipo]
     ok = True
@@ -1040,9 +1089,21 @@ def _coletar_links_facebook(driver, handle, max_videos=None):
             break
 
         antes = len(links_vistos)
-        # Rola aos poucos (como um humano rolando) em vez de pular direto pro fim —
-        # o carregamento infinito do Facebook so dispara passando pelas posicoes intermediarias.
-        driver.execute_script("window.scrollBy(0, window.innerHeight * 0.85);")
+
+        # A grade de reels do Facebook carrega mais itens quando o ULTIMO item
+        # visivel entra na tela — rolar a janela as cegas (scrollBy/scrollTo)
+        # nao dispara isso porque o conteudo real fica num container interno.
+        # Por isso levamos o proprio elemento do ultimo reel encontrado pra
+        # dentro da tela, igual um usuario rolando ate ele.
+        elementos = driver.find_elements(By.CSS_SELECTOR, "a[href*='/reel/']")
+        if elementos:
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center', behavior: 'instant'});",
+                elementos[-1],
+            )
+        else:
+            driver.execute_script("window.scrollBy(0, window.innerHeight * 0.85);")
+
         time.sleep(3.5)
 
         if len(links_vistos) == antes:
@@ -1088,7 +1149,18 @@ def baixar_perfil_facebook(item, driver):
         print(AMARELO("  ⚠️  Nenhum reel encontrado (perfil pode exigir login — configure facebook_cookies.txt)."))
         return {"handle": handle, "categoria": nome_cat, "videos": 0, "ok": False, "tempo": 0, "filtro": desc, "rede": "facebook"}
 
-    _pip("yt-dlp", "yt_dlp")
+    _pip_atualizar("yt-dlp", "yt_dlp")
+    _instalar_curl_cffi()
+
+    # Usa a sessao JA LOGADA do Chrome (perfil persistente) em vez de exigir
+    # um facebook_cookies.txt exportado na mao — reaproveita o login que o
+    # usuario ja fez uma vez.
+    cookies_sessao = pasta / ".facebook_session_cookies.tmp"
+    try:
+        _exportar_cookies_sessao(driver, cookies_sessao)
+    except Exception as e:
+        print(AMARELO(f"  ⚠️  Nao consegui exportar cookies da sessao: {e}"))
+        cookies_sessao = None
 
     baixados = 0
     print(f"\n  ⬇️   Baixando {len(urls)} reels...\n")
@@ -1107,8 +1179,11 @@ def baixar_perfil_facebook(item, driver):
             "--audio-quality", "0",
             "-o", str(pasta / "%(id)s.%(ext)s"),
             "--no-warnings", "--retries", "5",
+            "--impersonate", "chrome",
         ]
-        if FACEBOOK_COOKIES_FILE.exists():
+        if cookies_sessao and cookies_sessao.exists():
+            cmd += ["--cookies", str(cookies_sessao)]
+        elif FACEBOOK_COOKIES_FILE.exists():
             cmd += ["--cookies", str(FACEBOOK_COOKIES_FILE)]
         cmd.append(url)
 
@@ -1123,6 +1198,9 @@ def baixar_perfil_facebook(item, driver):
             linhas_erro = [l for l in (r.stderr or r.stdout or "").splitlines() if l.strip()]
             motivo = linhas_erro[-1] if linhas_erro else "erro desconhecido"
             print(ERRO(f"  ✗  {motivo[:120]}"))
+
+    if cookies_sessao and cookies_sessao.exists():
+        cookies_sessao.unlink()
 
     elapsed   = time.time() - inicio
     qtd_total = contar_videos(pasta)
@@ -1246,7 +1324,7 @@ def baixar_urls_soltas(urls, categoria, rede, driver=None):
             "YouTube":  YOUTUBE_COOKIES_FILE,
             "Facebook": FACEBOOK_COOKIES_FILE,
         }[rede]
-        _pip("yt-dlp", "yt_dlp")
+        _pip_atualizar("yt-dlp", "yt_dlp")
         for i, url in enumerate(urls, 1):
             chave = url.split("?")[0].rstrip("/").split("/")[-1]
             if chave in historico:
@@ -1293,7 +1371,7 @@ def baixar_urls_soltas(urls, categoria, rede, driver=None):
                 session.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
 
         # Usa yt-dlp para Instagram tbm (mais confiavel para URLs individuais)
-        _pip("yt-dlp", "yt_dlp")
+        _pip_atualizar("yt-dlp", "yt_dlp")
         for i, url in enumerate(urls, 1):
             chave = url.split("?")[0].rstrip("/").split("/")[-1]
             if chave in historico:
@@ -1424,7 +1502,7 @@ def main():
                   "📘" if eh_facebook else "📸")
 
     if eh_tiktok:
-        _pip("yt-dlp", "yt_dlp")
+        _pip_atualizar("yt-dlp", "yt_dlp")
         if not TIKTOK_COOKIES_FILE.exists():
             cabecalho()
             print(AMARELO("  ℹ️  Cookies do TikTok nao encontrados (opcional)."))
@@ -1434,7 +1512,7 @@ def main():
             input(AZUL("  Pressione Enter para continuar..."))
 
     if eh_youtube:
-        _pip("yt-dlp", "yt_dlp")
+        _pip_atualizar("yt-dlp", "yt_dlp")
         if not YOUTUBE_COOKIES_FILE.exists():
             cabecalho()
             print(AMARELO("  ℹ️  Cookies do YouTube nao encontrados (opcional)."))
@@ -1444,7 +1522,7 @@ def main():
             input(AZUL("  Pressione Enter para continuar..."))
 
     if eh_facebook:
-        _pip("yt-dlp", "yt_dlp")
+        _pip_atualizar("yt-dlp", "yt_dlp")
         if not FACEBOOK_COOKIES_FILE.exists():
             cabecalho()
             print(AMARELO("  ℹ️  Cookies do Facebook nao encontrados (opcional)."))
