@@ -269,11 +269,20 @@ def _encontrar_cookies(nome_arquivo):
     return _SCRIPT_DIR / nome_arquivo  # retorna o caminho padrão mesmo não existindo
 
 
+PERFIS_CHROME_DIR = _SCRIPT_DIR / "chrome_profiles"
+
+
 def iniciar_chrome(url_base="https://www.instagram.com/", cookies_file=None, nome_rede="Instagram"):
-    """Abre Chrome e injeta cookies pra autenticar numa rede (Instagram, Facebook...)."""
+    """Abre Chrome com um perfil persistente (por rede) pra manter a sessao
+    logada entre execucoes — nao precisa logar toda vez."""
     cookies_file = cookies_file or COOKIES_FILE
 
+    perfil_dir    = PERFIS_CHROME_DIR / nome_rede.lower()
+    primeira_vez  = not perfil_dir.exists() or not any(perfil_dir.iterdir())
+    perfil_dir.mkdir(parents=True, exist_ok=True)
+
     opts = Options()
+    opts.add_argument(f"--user-data-dir={perfil_dir}")
     opts.add_argument("--start-maximized")
     opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_argument("--no-sandbox")
@@ -292,17 +301,18 @@ def iniciar_chrome(url_base="https://www.instagram.com/", cookies_file=None, nom
     driver.get(url_base)
     time.sleep(2)
 
-    # Injeta cookies do arquivo exportado
     if cookies_file.exists():
         print("  🍪  Injetando cookies...")
         _injetar_cookies(driver, cookies_file)
         driver.refresh()
         time.sleep(3)
         print("  ✓  Cookies injetados!")
-    else:
-        print(f"  ⚠️  Arquivo de cookies nao encontrado: {cookies_file}")
-        print(f"  ℹ️  Faca login manualmente no Chrome que abriu.")
+    elif primeira_vez:
+        print(f"  ⚠️  Primeira vez usando {nome_rede} aqui — faca login manualmente no Chrome que abriu.")
+        print(f"  ℹ️  Da proxima vez o login fica salvo, nao vai precisar repetir.")
         input(f"  Pressione Enter apos fazer login no {nome_rede}...")
+    else:
+        print(f"  ✓  Sessao salva de {nome_rede} encontrada — pulando login manual.")
 
     return driver
 
