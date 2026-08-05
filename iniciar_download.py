@@ -417,12 +417,21 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
     """
     print(f"\n  🔍  Buscando videos de @{handle} via API...")
 
-    # Carrega cookies
+    # Carrega cookies — primeiro tenta o arquivo exportado, senao reaproveita
+    # a sessao JA LOGADA do Chrome (perfil persistente, ver PERFIS_CHROME_DIR)
     _cf = _encontrar_cookies("instagram_cookies.txt")
-    cookies = _get_cookies_dict(_cf) if _cf.exists() else {}
+    if _cf.exists():
+        cookies = _get_cookies_dict(_cf)
+    elif driver:
+        cookies = {c["name"]: c["value"] for c in driver.get_cookies()}
+        if cookies:
+            print("  ✓  Usando cookies da sessao logada do Chrome (sem arquivo).")
+    else:
+        cookies = {}
+
     if not cookies:
         print(ERRO(f"  ❌  Cookies nao encontrados."))
-        print(AMARELO(f"  ℹ️  Coloque o instagram_cookies.txt em: {_SCRIPT_DIR}"))
+        print(AMARELO(f"  ℹ️  Faca login no Chrome que abriu, ou coloque o instagram_cookies.txt em: {_SCRIPT_DIR}"))
         print(AMARELO(f"       ou em: {PASTA_RAIZ}"))
         return []
 
