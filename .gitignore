@@ -10,6 +10,7 @@ __pycache__/
 build/
 dist/
 *.spec
+fnkDownloader.exe
 payload_v*.zip
 
 # Ambiente
