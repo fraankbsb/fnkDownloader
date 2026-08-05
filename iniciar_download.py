@@ -278,14 +278,21 @@ _SCRIPT_DIR         = Path(__file__).resolve().parent
 
 # Pasta raiz dos perfis para escolha — usa o drive onde o script esta (nao assume D:)
 PASTA_RAIZ = Path(_SCRIPT_DIR.anchor or "C:/") / "FNKSOCIALMIDIA" / "fnkPerfis"
-COOKIES_FILE          = _SCRIPT_DIR / "instagram_cookies.txt"
-TIKTOK_COOKIES_FILE   = _SCRIPT_DIR / "tiktok_cookies.txt"
-YOUTUBE_COOKIES_FILE  = _SCRIPT_DIR / "youtube_cookies.txt"
-FACEBOOK_COOKIES_FILE = _SCRIPT_DIR / "facebook_cookies.txt"
+# Area reservada pra cookies — todo arquivo de sessao exportado vai aqui,
+# separado do codigo, pra ficar obvio onde colocar em qualquer PC.
+COOKIES_DIR = _SCRIPT_DIR / "cookies"
+COOKIES_DIR.mkdir(parents=True, exist_ok=True)
+
+COOKIES_FILE          = COOKIES_DIR / "instagram_cookies.txt"
+TIKTOK_COOKIES_FILE   = COOKIES_DIR / "tiktok_cookies.txt"
+YOUTUBE_COOKIES_FILE  = COOKIES_DIR / "youtube_cookies.txt"
+FACEBOOK_COOKIES_FILE = COOKIES_DIR / "facebook_cookies.txt"
 
 def _encontrar_cookies(nome_arquivo):
-    """Busca o arquivo de cookies na pasta do script e também na PASTA_RAIZ."""
+    """Busca o arquivo de cookies na pasta cookies/, na pasta do script (legado)
+    e na PASTA_RAIZ."""
     candidatos = [
+        COOKIES_DIR / nome_arquivo,
         _SCRIPT_DIR / nome_arquivo,
         PASTA_RAIZ / nome_arquivo,
         Path(nome_arquivo),
@@ -293,7 +300,7 @@ def _encontrar_cookies(nome_arquivo):
     for c in candidatos:
         if c.exists():
             return c
-    return _SCRIPT_DIR / nome_arquivo  # retorna o caminho padrão mesmo não existindo
+    return COOKIES_DIR / nome_arquivo  # retorna o caminho padrão mesmo não existindo
 
 
 PERFIS_CHROME_DIR = _SCRIPT_DIR / "chrome_profiles"
@@ -431,8 +438,7 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
 
     if not cookies:
         print(ERRO(f"  ❌  Cookies nao encontrados."))
-        print(AMARELO(f"  ℹ️  Faca login no Chrome que abriu, ou coloque o instagram_cookies.txt em: {_SCRIPT_DIR}"))
-        print(AMARELO(f"       ou em: {PASTA_RAIZ}"))
+        print(AMARELO(f"  ℹ️  Faca login no Chrome que abriu, ou coloque o instagram_cookies.txt em: {COOKIES_DIR}"))
         return []
 
     session = requests.Session()
@@ -1373,7 +1379,7 @@ def baixar_urls_soltas(urls, categoria, rede, driver=None):
         _cf     = _encontrar_cookies("instagram_cookies.txt")
         cookies = _get_cookies_dict(_cf) if _cf.exists() else {}
         if not _cf.exists():
-            print(AMARELO(f"  ℹ️  Copie o instagram_cookies.txt para: {_SCRIPT_DIR}"))
+            print(AMARELO(f"  ℹ️  Copie o instagram_cookies.txt para: {COOKIES_DIR}"))
         session.cookies.update(cookies)
         if driver:
             for c in driver.get_cookies():

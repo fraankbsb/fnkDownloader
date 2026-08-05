@@ -13,6 +13,7 @@ Uso automatico (versao/mensagem geradas sozinhas):
 
 import sys
 import json
+import shutil
 import subprocess
 import zipfile
 from datetime import datetime
@@ -22,6 +23,26 @@ APP_DIR      = Path(__file__).resolve().parent
 VERSION_FILE = APP_DIR / "version.json"
 CONFIG_FILE  = APP_DIR / "update_config.json"
 SCRIPT_ALVO  = APP_DIR / "iniciar_download.py"
+
+_CAMINHOS_GH_CONHECIDOS = [
+    r"C:\Program Files\GitHub CLI\gh.exe",
+    r"C:\Program Files (x86)\GitHub CLI\gh.exe",
+]
+
+
+def resolver_gh():
+    """Encontra o executavel do gh mesmo se o PATH da sessao atual nao tiver sido atualizado."""
+    encontrado = shutil.which("gh")
+    if encontrado:
+        return encontrado
+    for caminho in _CAMINHOS_GH_CONHECIDOS:
+        if Path(caminho).exists():
+            return caminho
+    print("ERRO: nao encontrei o executavel do GitHub CLI (gh). Instale com: winget install GitHub.cli")
+    sys.exit(1)
+
+
+GH = resolver_gh()
 
 # Arquivos que entram no pacote de atualizacao (NUNCA incluir cookies!)
 ARQUIVOS_PAYLOAD = [SCRIPT_ALVO, VERSION_FILE]
@@ -52,7 +73,10 @@ def proxima_versao_patch(versao_atual):
 
 
 def commitar_e_dar_push(mensagem):
-    subprocess.run(["git", "add"] + [str(a) for a in ARQUIVOS_PAYLOAD], cwd=APP_DIR)
+    # git add -A (nao so os arquivos do payload) — senao mudancas em outros
+    # arquivos do projeto (launcher.py, o proprio publish.py, etc) ficam
+    # penduradas sem commit. O .gitignore ja protege os segredos.
+    subprocess.run(["git", "add", "-A"], cwd=APP_DIR)
     resultado = subprocess.run(
         ["git", "commit", "-m", mensagem], cwd=APP_DIR, capture_output=True, text=True
     )
@@ -98,7 +122,7 @@ def main():
     # 4. Cria a release no GitHub via gh CLI
     tag = f"v{nova_versao}"
     cmd = [
-        "gh", "release", "create", tag,
+        GH, "release", "create", tag,
         str(zip_path),
         "--repo", repo,
         "--title", tag,

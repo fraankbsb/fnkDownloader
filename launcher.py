@@ -30,9 +30,8 @@ else:
 
 VERSION_FILE = APP_DIR / "version.json"
 CONFIG_FILE  = APP_DIR / "update_config.json"
-SCRIPT_ALVO  = APP_DIR / "iniciar_download.py"
 
-USER_AGENT = "fnkDownloader-updater"
+USER_AGENT = "app-updater"
 
 
 def _ler_json(path, default):
@@ -42,15 +41,33 @@ def _ler_json(path, default):
         return default
 
 
+def _config():
+    return _ler_json(CONFIG_FILE, {})
+
+
 def ler_versao_local():
     return _ler_json(VERSION_FILE, {"version": "0.0.0"}).get("version", "0.0.0")
 
 
 def ler_repo():
-    repo = _ler_json(CONFIG_FILE, {"repo": ""}).get("repo", "")
+    repo = _config().get("repo", "")
     if not repo or "/" not in repo:
         raise RuntimeError("update_config.json sem 'repo' configurado (formato OWNER/REPO).")
     return repo
+
+
+def ler_entry_point():
+    entry = _config().get("entry_point", "")
+    if not entry:
+        raise RuntimeError("update_config.json sem 'entry_point' configurado.")
+    return APP_DIR / entry
+
+
+def ler_titulo():
+    return _config().get("app_title", "App")
+
+
+SCRIPT_ALVO = ler_entry_point()
 
 
 def buscar_release_mais_recente(repo):
@@ -105,7 +122,7 @@ def aplicar_update(release, log):
 class LauncherApp:
     def __init__(self, root):
         self.root = root
-        root.title("fnkDownloader — Launcher")
+        root.title(f"{ler_titulo()} — Launcher")
         root.geometry("520x360")
         root.resizable(False, False)
 

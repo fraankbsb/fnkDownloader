@@ -1,3 +1,6 @@
 {
-  "repo": "fraankbsb/fnkDownloader"
+  "repo": "fraankbsb/fnkDownloader",
+  "app_title": "fnkDownloader",
+  "entry_point": "iniciar_download.py",
+  "payload_files": ["iniciar_download.py"]
 }
