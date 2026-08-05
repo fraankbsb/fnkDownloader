@@ -46,7 +46,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 # BASE_VIDEOS é definido em runtime pelo usuário
-BASE_VIDEOS = Path("D:/FNKSOCIALMIDIA/fnkPerfis")  # valor padrão, sobrescrito no main()
+# Usa o drive onde o script esta rodando — nao assume que exista D: (nem todo PC tem).
+_DRIVE_SCRIPT = Path(__file__).resolve().anchor or "C:/"
+BASE_VIDEOS = Path(_DRIVE_SCRIPT) / "FNKSOCIALMIDIA" / "fnkPerfis"  # valor padrão, sobrescrito no main()
 
 # ── Cores ─────────────────────────────────────────────────────
 def cor(t, c):
@@ -244,11 +246,11 @@ def passo_filtro(resumo):
 #  SELENIUM — extrai URLs de video e baixa
 # ══════════════════════════════════════════════════════════════
 
-# Pasta raiz dos perfis para escolha
-PASTA_RAIZ = Path("D:/FNKSOCIALMIDIA/fnkPerfis")
-
 # Cookies ficam na pasta do script
-_SCRIPT_DIR         = Path(__file__).parent
+_SCRIPT_DIR         = Path(__file__).resolve().parent
+
+# Pasta raiz dos perfis para escolha — usa o drive onde o script esta (nao assume D:)
+PASTA_RAIZ = Path(_SCRIPT_DIR.anchor or "C:/") / "FNKSOCIALMIDIA" / "fnkPerfis"
 COOKIES_FILE          = _SCRIPT_DIR / "instagram_cookies.txt"
 TIKTOK_COOKIES_FILE   = _SCRIPT_DIR / "tiktok_cookies.txt"
 YOUTUBE_COOKIES_FILE  = _SCRIPT_DIR / "youtube_cookies.txt"
