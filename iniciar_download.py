@@ -269,8 +269,10 @@ def _encontrar_cookies(nome_arquivo):
     return _SCRIPT_DIR / nome_arquivo  # retorna o caminho padrão mesmo não existindo
 
 
-def iniciar_chrome():
-    """Abre Chrome com seleniumwire para capturar trafego de rede."""
+def iniciar_chrome(url_base="https://www.instagram.com/", cookies_file=None, nome_rede="Instagram"):
+    """Abre Chrome e injeta cookies pra autenticar numa rede (Instagram, Facebook...)."""
+    cookies_file = cookies_file or COOKIES_FILE
+
     opts = Options()
     opts.add_argument("--start-maximized")
     opts.add_argument("--disable-blink-features=AutomationControlled")
@@ -285,22 +287,22 @@ def iniciar_chrome():
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
 
-    # Navega para o Instagram primeiro (necessario para setar cookies no dominio)
-    print("  🌐  Carregando Instagram...")
-    driver.get("https://www.instagram.com/")
+    # Navega pra rede primeiro (necessario para setar cookies no dominio)
+    print(f"  🌐  Carregando {nome_rede}...")
+    driver.get(url_base)
     time.sleep(2)
 
     # Injeta cookies do arquivo exportado
-    if COOKIES_FILE.exists():
+    if cookies_file.exists():
         print("  🍪  Injetando cookies...")
-        _injetar_cookies(driver, COOKIES_FILE)
+        _injetar_cookies(driver, cookies_file)
         driver.refresh()
         time.sleep(3)
         print("  ✓  Cookies injetados!")
     else:
-        print(f"  ⚠️  Arquivo de cookies nao encontrado: {COOKIES_FILE}")
-        print("  ℹ️  Faca login manualmente no Chrome que abriu.")
-        input("  Pressione Enter apos fazer login no Instagram...")
+        print(f"  ⚠️  Arquivo de cookies nao encontrado: {cookies_file}")
+        print(f"  ℹ️  Faca login manualmente no Chrome que abriu.")
+        input(f"  Pressione Enter apos fazer login no {nome_rede}...")
 
     return driver
 
@@ -999,12 +1001,55 @@ def _facebook_url_perfil(handle):
     return f"https://www.facebook.com/{h.lstrip('@')}/videos"
 
 
-def baixar_perfil_facebook(item):
+def _coletar_links_facebook(driver, handle, max_videos=None):
+    """
+    O yt-dlp NAO sabe listar os videos de uma pagina do Facebook (so baixa
+    video individual, ex: facebook.com/pagina/videos/123456). Por isso a
+    coleta e feita via Selenium: rola a aba /videos da pagina e extrai os
+    links de video que aparecem no HTML.
+    """
+    print(f"\n  🔍  Coletando links de video de @{handle} (rolando a pagina)...")
+    driver.get(_facebook_url_perfil(handle))
+    time.sleep(3)
+
+    padrao = re.compile(r'facebook\.com/[^"\'/]+/videos/(\d+)')
+    links_vistos = {}
+    rolagens_sem_novidade = 0
+    max_rolagens = 60
+
+    for _ in range(max_rolagens):
+        for m in padrao.finditer(driver.page_source):
+            vid = m.group(1)
+            if vid not in links_vistos:
+                links_vistos[vid] = f"https://www.facebook.com/{handle.lstrip('@')}/videos/{vid}/"
+
+        print(f"  ✓  {len(links_vistos)} video(s) encontrados...", end="\r")
+
+        if max_videos and len(links_vistos) >= max_videos:
+            break
+
+        antes = len(links_vistos)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+
+        if len(links_vistos) == antes:
+            rolagens_sem_novidade += 1
+            if rolagens_sem_novidade >= 4:
+                break
+        else:
+            rolagens_sem_novidade = 0
+
+    urls = list(links_vistos.values())
+    if max_videos:
+        urls = urls[:max_videos]
+    print(f"\n  📊  Total de videos coletados: {len(urls)}")
+    return urls
+
+
+def baixar_perfil_facebook(item, driver):
     """Baixa videos de um perfil/pagina do Facebook para a pasta correta."""
     handle     = item["handle"]
     nome_cat   = item["categoria"]
-    d_ini      = item["data_ini"]
-    d_fim      = item["data_fim"]
     max_videos = item["max_videos"]
     desc       = item["desc_filtro"]
 
@@ -1012,59 +1057,68 @@ def baixar_perfil_facebook(item):
     pasta.mkdir(parents=True, exist_ok=True)
 
     hist_path = pasta / "historico_downloads.txt"
+    historico = set()
+    if hist_path.exists():
+        historico = set(hist_path.read_text(encoding="utf-8").splitlines())
 
     print()
     print(NEGRITO(f"  ▶  @{handle}  [{nome_cat}]  📘 Facebook"))
-    print(CINZA( f"     Filtro : {desc}"))
+    print(CINZA( f"     Filtro : {desc}  (Facebook nao suporta filtro por data — so por quantidade)"))
     print(CINZA( f"     Pasta  : {pasta}"))
     print()
 
     inicio = time.time()
 
+    urls = _coletar_links_facebook(driver, handle, max_videos)
+    if not urls:
+        print(AMARELO("  ⚠️  Nenhum video encontrado (perfil pode exigir login — configure facebook_cookies.txt)."))
+        return {"handle": handle, "categoria": nome_cat, "videos": 0, "ok": False, "tempo": 0, "filtro": desc, "rede": "facebook"}
+
     _pip("yt-dlp", "yt_dlp")
 
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--merge-output-format", "mp4",
-        "--audio-quality", "0",
-        "-o", str(pasta / "%(upload_date>%Y-%m-%d)s_%(id)s.%(ext)s"),
-        "--download-archive", str(hist_path),
-        "--no-warnings",
-        "--retries", "5",
-        "--ignore-errors",
-        "--sleep-interval", "1",
-    ]
+    baixados = 0
+    print(f"\n  ⬇️   Baixando {len(urls)} videos...\n")
 
-    if FACEBOOK_COOKIES_FILE.exists():
-        cmd += ["--cookies", str(FACEBOOK_COOKIES_FILE)]
-    else:
-        print(AMARELO("  ℹ️  Sem cookies — apenas videos publicos."))
-        print(CINZA (f"     Salve como: {FACEBOOK_COOKIES_FILE}"))
+    for i, url in enumerate(urls, 1):
+        chave = url.split("?")[0].rstrip("/").split("/")[-1]
+        if chave in historico:
+            print(f"  [{i}/{len(urls)}]  ja baixado — pulando")
+            continue
 
-    if d_ini:
-        cmd += ["--dateafter",  d_ini.strftime("%Y%m%d")]
-    if d_fim:
-        cmd += ["--datebefore", d_fim.strftime("%Y%m%d")]
-    if max_videos:
-        cmd += ["--max-downloads", str(max_videos)]
+        print(f"  [{i}/{len(urls)}]  {url[:60]}...")
+        cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "--audio-quality", "0",
+            "-o", str(pasta / "%(id)s.%(ext)s"),
+            "--no-warnings", "--retries", "5",
+        ]
+        if FACEBOOK_COOKIES_FILE.exists():
+            cmd += ["--cookies", str(FACEBOOK_COOKIES_FILE)]
+        cmd.append(url)
 
-    cmd.append(_facebook_url_perfil(handle))
-
-    resultado = subprocess.run(cmd)
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode == 0:
+            baixados += 1
+            historico.add(chave)
+            with open(hist_path, "a", encoding="utf-8") as f:
+                f.write(chave + "\n")
+            print(VERDE(f"  ✓"))
+        else:
+            print(ERRO(f"  ✗"))
 
     elapsed   = time.time() - inicio
     qtd_total = contar_videos(pasta)
-    ok        = resultado.returncode == 0
 
     print()
-    print(VERDE(f"  ✓  {qtd_total} video(s) na pasta  |  {elapsed:.0f}s"))
+    print(VERDE(f"  ✓  {baixados} novos  |  {qtd_total} total  |  {elapsed:.0f}s"))
 
     return {
         "handle":    handle,
         "categoria": nome_cat,
-        "videos":    qtd_total,
-        "ok":        ok,
+        "videos":    baixados,
+        "ok":        True,
         "tempo":     elapsed,
         "filtro":    desc,
         "rede":      "facebook",
@@ -1457,9 +1511,13 @@ def main():
         print(f"  {CINZA('•')}  {linha}")
     print()
 
-    if not eh_tiktok and not eh_youtube and not eh_facebook and modo == "1":
-        print(AMARELO("  ⚠️  O Chrome vai abrir com sua conta do Instagram."))
+    if not eh_tiktok and not eh_youtube and modo == "1":
+        print(AMARELO(f"  ⚠️  O Chrome vai abrir com sua conta do {rede_nome}."))
         print(CINZA ("     Nao feche o Chrome durante o processo."))
+        print()
+
+    if eh_facebook and modo == "1":
+        print(AMARELO("  ℹ️  Facebook nao suporta filtro por data — so por quantidade/tudo."))
         print()
 
     confirma = input(AZUL("  Tudo certo? S para iniciar / N para cancelar: ")).strip().upper()
@@ -1504,12 +1562,18 @@ def main():
             resultados.append(r)
 
     elif eh_facebook:
-        # Facebook por perfil/pagina
-        cabecalho(resumo)
-        print(CIANO(f"  🚀  Iniciando downloads Facebook...\n"))
+        # Facebook por perfil/pagina — precisa do Chrome pra coletar os links
+        print()
+        print(CIANO("  🚀  Abrindo Chrome..."))
+        driver = iniciar_chrome(
+            url_base="https://www.facebook.com/",
+            cookies_file=FACEBOOK_COOKIES_FILE,
+            nome_rede="Facebook",
+        )
+
         for i, item in enumerate(lote, 1):
-            print(NEGRITO(CIANO(f"  [{i}/{len(lote)}]  @{item['handle']}")))
-            r = baixar_perfil_facebook(item)
+            print(NEGRITO(CIANO(f"\n  [{i}/{len(lote)}]  @{item['handle']}")))
+            r = baixar_perfil_facebook(item, driver)
             resultados.append(r)
 
     else:
