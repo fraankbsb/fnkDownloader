@@ -994,25 +994,25 @@ def baixar_perfil_youtube(item):
 # ══════════════════════════════════════════════════════════════
 
 def _facebook_url_perfil(handle):
-    """Monta a URL da aba de videos do perfil/pagina a partir do handle."""
+    """Monta a URL da aba de REELS do perfil/pagina a partir do handle."""
     h = handle.strip()
     if h.startswith("http"):
         return h
-    return f"https://www.facebook.com/{h.lstrip('@')}/videos"
+    return f"https://www.facebook.com/{h.lstrip('@')}/reels"
 
 
 def _coletar_links_facebook(driver, handle, max_videos=None):
     """
-    O yt-dlp NAO sabe listar os videos de uma pagina do Facebook (so baixa
-    video individual, ex: facebook.com/pagina/videos/123456). Por isso a
-    coleta e feita via Selenium: rola a aba /videos da pagina e extrai os
-    links de video que aparecem no HTML.
+    O yt-dlp NAO sabe listar os reels de uma pagina do Facebook (so baixa
+    um reel individual, ex: facebook.com/reel/123456 — extractor FacebookReelIE).
+    Por isso a coleta e feita via Selenium: rola a aba /reels da pagina e
+    extrai os IDs de reel que aparecem no HTML.
     """
-    print(f"\n  🔍  Coletando links de video de @{handle} (rolando a pagina)...")
+    print(f"\n  🔍  Coletando reels de @{handle} (rolando a pagina)...")
     driver.get(_facebook_url_perfil(handle))
     time.sleep(3)
 
-    padrao = re.compile(r'facebook\.com/[^"\'/]+/videos/(\d+)')
+    padrao = re.compile(r'facebook\.com/reel/(\d+)')
     links_vistos = {}
     rolagens_sem_novidade = 0
     max_rolagens = 60
@@ -1021,9 +1021,9 @@ def _coletar_links_facebook(driver, handle, max_videos=None):
         for m in padrao.finditer(driver.page_source):
             vid = m.group(1)
             if vid not in links_vistos:
-                links_vistos[vid] = f"https://www.facebook.com/{handle.lstrip('@')}/videos/{vid}/"
+                links_vistos[vid] = f"https://www.facebook.com/reel/{vid}/"
 
-        print(f"  ✓  {len(links_vistos)} video(s) encontrados...", end="\r")
+        print(f"  ✓  {len(links_vistos)} reel(s) encontrados...", end="\r")
 
         if max_videos and len(links_vistos) >= max_videos:
             break
@@ -1047,7 +1047,7 @@ def _coletar_links_facebook(driver, handle, max_videos=None):
 
 
 def baixar_perfil_facebook(item, driver):
-    """Baixa videos de um perfil/pagina do Facebook para a pasta correta."""
+    """Baixa os REELS de um perfil/pagina do Facebook para a pasta correta."""
     handle     = item["handle"]
     nome_cat   = item["categoria"]
     max_videos = item["max_videos"]
@@ -1071,13 +1071,13 @@ def baixar_perfil_facebook(item, driver):
 
     urls = _coletar_links_facebook(driver, handle, max_videos)
     if not urls:
-        print(AMARELO("  ⚠️  Nenhum video encontrado (perfil pode exigir login — configure facebook_cookies.txt)."))
+        print(AMARELO("  ⚠️  Nenhum reel encontrado (perfil pode exigir login — configure facebook_cookies.txt)."))
         return {"handle": handle, "categoria": nome_cat, "videos": 0, "ok": False, "tempo": 0, "filtro": desc, "rede": "facebook"}
 
     _pip("yt-dlp", "yt_dlp")
 
     baixados = 0
-    print(f"\n  ⬇️   Baixando {len(urls)} videos...\n")
+    print(f"\n  ⬇️   Baixando {len(urls)} reels...\n")
 
     for i, url in enumerate(urls, 1):
         chave = url.split("?")[0].rstrip("/").split("/")[-1]
