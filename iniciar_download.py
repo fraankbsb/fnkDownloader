@@ -432,6 +432,12 @@ def _requisicao_ig(session, metodo, url, diag_label, **kwargs):
             print(f"\n  ⚠️  {diag_label}: erro de rede ({e}).")
             return None
 
+        if r.status_code == 429:
+            print(f"\n  🛑  {diag_label}: HTTP 429 — RATE LIMIT real do Instagram.")
+            print(f"     Isso NAO e um bug: o Instagram esta limitando ativamente sua conta/sessao.")
+            print(f"     Espere pelo menos 15-30 minutos (pode levar horas) antes de tentar de novo.")
+            return None
+
         if r.status_code == 200:
             try:
                 j = r.json()
