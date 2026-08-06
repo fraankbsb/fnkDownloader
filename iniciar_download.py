@@ -42,6 +42,20 @@ def _pip_atualizar(pkg, import_name=None):
     )
 
 
+def _yt_dlp_ok(returncode, max_videos=None):
+    """
+    yt-dlp retorna codigo 101 quando para de propósito por causa do
+    --max-downloads (limite de quantidade atingido) — isso NAO e erro, e o
+    comportamento esperado, mas olhando so o returncode parecia falha e todo
+    download "por quantidade" aparecia com ✗ mesmo baixando tudo certinho.
+    """
+    if returncode == 0:
+        return True
+    if max_videos and returncode == 101:
+        return True
+    return False
+
+
 def _instalar_curl_cffi():
     """curl_cffi habilita o --impersonate do yt-dlp (finge ser um Chrome de
     verdade), o que ajuda o Facebook a nao bloquear/alterar a resposta pro
@@ -967,7 +981,10 @@ def baixar_perfil_tiktok(item):
     if d_fim:
         cmd += ["--datebefore", d_fim.strftime("%Y%m%d")]
     if max_videos:
-        cmd += ["--max-downloads", str(max_videos)]
+        # --playlist-end evita paginar o perfil inteiro so pra baixar poucos
+        # videos (sem isso, um perfil com 1000+ videos era todo enumerado
+        # antes de comecar a baixar, mesmo pedindo so os ultimos 3)
+        cmd += ["--max-downloads", str(max_videos), "--playlist-end", str(max_videos)]
 
     cmd.append(f"https://www.tiktok.com/@{handle}")
 
@@ -975,7 +992,7 @@ def baixar_perfil_tiktok(item):
 
     elapsed   = time.time() - inicio
     qtd_total = contar_videos(pasta)
-    ok        = resultado.returncode == 0
+    ok        = _yt_dlp_ok(resultado.returncode, max_videos)
 
     print()
     print(VERDE(f"  ✓  {qtd_total} video(s) na pasta  |  {elapsed:.0f}s"))
@@ -1079,12 +1096,14 @@ def baixar_perfil_youtube(item):
         if d_fim:
             cmd += ["--datebefore", d_fim.strftime("%Y%m%d")]
         if max_videos:
-            cmd += ["--max-downloads", str(max_videos)]
+            # --playlist-end evita paginar o canal inteiro so pra baixar poucos
+            # videos (mesma logica do TikTok)
+            cmd += ["--max-downloads", str(max_videos), "--playlist-end", str(max_videos)]
 
         cmd.append(_youtube_url_canal(handle, aba))
 
         resultado = subprocess.run(cmd)
-        ok = ok and resultado.returncode == 0
+        ok = ok and _yt_dlp_ok(resultado.returncode, max_videos)
 
     elapsed   = time.time() - inicio
     qtd_total = contar_videos(pasta)
