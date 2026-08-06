@@ -23,6 +23,10 @@ launcher + releases no GitHub:
   `update_config.json` na release mais recente (nao sao republicados via
   `publish.py`, que so mexe no payload):
   `gh release upload <tag> fnkDownloader.exe update_config.json --repo fraankbsb/fnkDownloader --clobber`.
+  **Atencao:** isso precisa ser refeito a cada nova release (mesmo uma so de
+  docs) — o asset fica preso na tag antiga, e a tag "latest" muda a cada
+  `publish.py`. Se pular esse passo, PCs novos que baixarem da release mais
+  recente ficam sem o `.exe`/`update_config.json` de bootstrap.
 - **`publish.py`** → roda no PC de edicao. `python publish.py auto` sobe a
   versao (patch +1), da commit+push no repo, empacota o payload num zip e
   publica como GitHub Release via `gh release create`.
