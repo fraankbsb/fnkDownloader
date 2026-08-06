@@ -11,11 +11,18 @@ launcher + releases no GitHub:
 
 - **Repositorio**: https://github.com/fraankbsb/fnkDownloader (publico —
   contem so codigo, NUNCA os arquivos de cookies).
-- **`launcher.py`** → compilado uma unica vez em `fnkDownloader.exe`
-  (PyInstaller `--onefile --windowed`). Tem 2 botoes: "Atualizar App" (baixa
-  a release mais recente do GitHub e sobrescreve o payload local) e "Iniciar
-  App" (abre `iniciar_download.py` numa nova janela de console). O `.exe`
-  NUNCA precisa ser recompilado quando o codigo muda — so o payload muda.
+- **`launcher.py`** → compilado em `fnkDownloader.exe` (PyInstaller
+  `--onefile --windowed`). Tem 2 botoes: "Atualizar App" (baixa a release
+  mais recente do GitHub e sobrescreve o payload local) e "Iniciar App"
+  (abre `iniciar_download.py` numa nova janela de console). So precisa
+  recompilar quando `launcher.py` MESMO muda (mudancas em
+  `iniciar_download.py` nao exigem recompilar nada, so publicar release
+  normal). Comando de build:
+  `python -m PyInstaller --onefile --windowed --name fnkDownloader --distpath . --workpath build launcher.py`
+  — depois rodar `rm -rf build fnkDownloader.spec` e reanexar o `.exe` +
+  `update_config.json` na release mais recente (nao sao republicados via
+  `publish.py`, que so mexe no payload):
+  `gh release upload <tag> fnkDownloader.exe update_config.json --repo fraankbsb/fnkDownloader --clobber`.
 - **`publish.py`** → roda no PC de edicao. `python publish.py auto` sobe a
   versao (patch +1), da commit+push no repo, empacota o payload num zip e
   publica como GitHub Release via `gh release create`.
@@ -82,6 +89,14 @@ launcher + releases no GitHub:
   forca update do yt-dlp a cada execucao pra pegar correcoes assim que saem.
 - TikTok / YouTube: via `yt-dlp`, cookies opcionais em `cookies/<rede>_cookies.txt`.
   YouTube tem opcao extra de Videos/Shorts/Ambos.
+  **`--max-downloads` retorna exit code 101** quando para de proposito (limite
+  de quantidade atingido) — NAO e erro, mas olhar so o returncode fazia todo
+  download "por quantidade" aparecer como falha (✗) mesmo baixando tudo
+  certinho. `_yt_dlp_ok()` trata 101 como sucesso quando `max_videos` foi
+  pedido. Tambem usar sempre `--playlist-end N` junto com `--max-downloads N`
+  — sem isso, o yt-dlp enumera o PERFIL INTEIRO antes de comecar a baixar
+  (visto num teste real: 100 paginas/1462 videos varridos so pra baixar 3),
+  o que e lento e aumenta risco de rate-limit em contas grandes.
 - Modo "por perfil" (com filtro de periodo, exceto Facebook) ou "URLs soltas"
   (cola links direto) para todas as redes.
 
