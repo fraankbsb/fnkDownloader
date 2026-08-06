@@ -62,6 +62,14 @@ launcher + releases no GitHub:
 ## Redes suportadas (iniciar_download.py)
 - Instagram: Selenium + requests via API privada. Cookies em
   `cookies/instagram_cookies.txt` OU sessao do Chrome ja logada.
+  **Cuidado com falha silenciosa:** qualquer resposta da API sem a chave
+  "items" (rate-limit, checkpoint, sessao expirada) parece igual a "lista
+  acabou" se nao for tratada — foi a causa de downloads incompletos/perfis
+  falhando em lote. `_requisicao_ig()` detecta isso (HTTP != 200, status !=
+  "ok", resposta nao-JSON), tenta de novo 1x apos 20s, e so entao desiste
+  com aviso explicito. Ha pausa de 5s entre perfis no loop principal e 1.5s
+  entre paginas — reduz (nao elimina) risco de bloqueio ao rodar varios
+  perfis no mesmo lote.
 - Facebook: so REELS (nao "todos os videos" — yt-dlp nao tem extrator de
   listagem de pagina do Facebook, so de reel individual `facebook.com/reel/<id>`).
   Coleta via Selenium rolando a aba `/reels` (scrollIntoView no ultimo reel
@@ -76,3 +84,11 @@ launcher + releases no GitHub:
   YouTube tem opcao extra de Videos/Shorts/Ambos.
 - Modo "por perfil" (com filtro de periodo, exceto Facebook) ou "URLs soltas"
   (cola links direto) para todas as redes.
+
+### Como testar sem a conta do usuario
+Instagram e Facebook exigem login real — nao da pra testar essas duas ao
+vivo numa sessao de agente (sem credenciais do usuario). TikTok e YouTube
+funcionam com perfis publicos e JA foram validados de ponta a ponta (listagem
++ download real de video com o comando exato do script) contra canais/perfis
+publicos conhecidos, sem precisar de cookies — use esse mesmo approach pra
+qualquer teste futuro de TikTok/YouTube.
