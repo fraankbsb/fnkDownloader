@@ -339,7 +339,27 @@ def iniciar_chrome(url_base="https://www.instagram.com/", cookies_file=None, nom
     opts.add_experimental_option("useAutomationExtension", False)
 
     service = Service(ChromeDriverManager().install())
-    driver  = webdriver.Chrome(service=service, options=opts)
+    try:
+        driver = webdriver.Chrome(service=service, options=opts)
+    except Exception as e:
+        # "session not created: Chrome instance exited" geralmente e um
+        # chromedriver/chrome.exe travado de uma execucao anterior segurando
+        # o perfil persistente. Mata os processos orfaos (so os do
+        # chromedriver, nunca janelas normais do usuario) e tenta 1x de novo.
+        print(f"  ⚠️  Chrome nao abriu de primeira ({e}).")
+        print("  🔧  Limpando processos travados e tentando de novo...")
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/IM", "chromedriver.exe", "/T"],
+                            capture_output=True)
+        time.sleep(3)
+        try:
+            driver = webdriver.Chrome(service=service, options=opts)
+        except Exception as e2:
+            print("  ❌  Chrome continua nao abrindo.")
+            print(f"       Erro: {e2}")
+            print("  ℹ️  Abra o Gerenciador de Tarefas e feche processos 'chrome.exe' ou")
+            print("       'chromedriver.exe' travados, ou reinicie o PC, e tente de novo.")
+            raise
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
@@ -1075,7 +1095,10 @@ def baixar_perfil_youtube(item):
     for aba in abas:
         cmd = [
             sys.executable, "-m", "yt_dlp",
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            # Sem restringir a ext=mp4 na fonte — a melhor qualidade do YouTube
+            # (resolucoes mais altas / fps mais alto) geralmente vem em WebM,
+            # nao mp4. --merge-output-format ja garante o arquivo final em mp4.
+            "-f", "bestvideo+bestaudio/best",
             "--merge-output-format", "mp4",
             "--audio-quality", "0",
             "-o", str(pasta / "%(upload_date>%Y-%m-%d)s_%(id)s.%(ext)s"),
@@ -1248,7 +1271,7 @@ def baixar_perfil_facebook(item, driver):
         print(f"  [{i}/{len(urls)}]  {url[:60]}...")
         cmd = [
             sys.executable, "-m", "yt_dlp",
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "-f", "bestvideo+bestaudio/best",
             "--merge-output-format", "mp4",
             "--audio-quality", "0",
             "-o", str(pasta / "%(id)s.%(ext)s"),
@@ -1788,10 +1811,20 @@ if __name__ == "__main__":
         print("\n\n  Interrompido.\n")
     except Exception:
         import traceback
+        erro_txt = traceback.format_exc()
         print("\n" + "=" * 58)
         print("  ERRO:")
         print("=" * 58)
-        traceback.print_exc()
+        print(erro_txt)
+
+        pasta_erros = _SCRIPT_DIR / "erros"
+        pasta_erros.mkdir(parents=True, exist_ok=True)
+        arquivo_erro = pasta_erros / f"erro_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.txt"
+        try:
+            arquivo_erro.write_text(erro_txt, encoding="utf-8")
+            print(f"  📄  Detalhes salvos em: {arquivo_erro}")
+        except Exception as e:
+            print(f"  ⚠️  Nao consegui salvar o log de erro: {e}")
         print()
     finally:
         input("  Pressione Enter para fechar...")

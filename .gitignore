@@ -2,6 +2,9 @@
 cookies/*.txt
 chrome_profiles/
 
+# Logs locais de erro
+erros/
+
 # Build/artefatos
 __pycache__/
 *.pyc
