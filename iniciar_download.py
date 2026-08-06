@@ -417,6 +417,46 @@ def _get_cookies_dict(cookies_file):
     return cookies
 
 
+def _requisicao_ig(session, metodo, url, diag_label, **kwargs):
+    """
+    POST/GET pra API privada do Instagram com deteccao de bloqueio/rate-limit.
+
+    Sem isso, qualquer resposta sem a chave "items" (erro, checkpoint,
+    rate-limit, sessao expirada) era tratada como "lista de videos acabou",
+    mascarando bloqueios como se fossem downloads completos com poucos videos.
+    """
+    for tentativa in (1, 2):
+        try:
+            r = session.request(metodo, url, timeout=30, **kwargs)
+        except Exception as e:
+            print(f"\n  ⚠️  {diag_label}: erro de rede ({e}).")
+            return None
+
+        if r.status_code == 200:
+            try:
+                j = r.json()
+            except Exception:
+                print(f"\n  ⚠️  {diag_label}: resposta nao-JSON (HTTP 200) — provavel checkpoint/bloqueio.")
+                j = None
+            else:
+                status = j.get("status") if isinstance(j, dict) else None
+                if status and status != "ok":
+                    print(f"\n  ⚠️  {diag_label}: Instagram retornou status='{status}' ({str(j.get('message',''))[:80]}).")
+                    j = None
+                else:
+                    return j
+        else:
+            print(f"\n  ⚠️  {diag_label}: HTTP {r.status_code}.")
+            j = None
+
+        if tentativa == 1:
+            print(f"     Pode ser rate-limit temporario do Instagram — tentando de novo em 20s...")
+            time.sleep(20)
+
+    print(f"  ❌  {diag_label}: falhou apos 2 tentativas — parando aqui (NAO significa que a lista terminou).")
+    return None
+
+
 def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None):
     """
     Usa a API privada do Instagram diretamente via requests
@@ -482,6 +522,7 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
             hdrs.update(ep["headers"])
             r = session.get(ep["url"], headers=hdrs, timeout=15)
             if r.status_code != 200 or not r.text.strip():
+                print(f"  ⚠️  Endpoint retornou HTTP {r.status_code}: {ep['url'][:60]}...")
                 continue
             j = r.json()
             user_id = ep["extractor"](j)
@@ -602,28 +643,24 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
     pagina_r = 1
     while True:
         print(f"  📄  Reels página {pagina_r}...", end="\r")
-        try:
-            payload = {
-                "target_user_id":     user_id,
-                "page_size":          50,
-                "include_feed_video": "1",
-            }
-            if max_id:
-                payload["max_id"] = max_id
+        payload = {
+            "target_user_id":     user_id,
+            "page_size":          50,
+            "include_feed_video": "1",
+        }
+        if max_id:
+            payload["max_id"] = max_id
 
-            r = session.post(
-                "https://www.instagram.com/api/v1/clips/user/",
-                data=payload,
-                timeout=30,
-            )
-            j = r.json()
-        except Exception as e:
-            print(f"\n  ⚠️  Erro reels página {pagina_r}: {e}")
+        j = _requisicao_ig(
+            session, "POST", "https://www.instagram.com/api/v1/clips/user/",
+            f"Reels pagina {pagina_r}", data=payload,
+        )
+        if j is None:
             break
 
         items_raw = j.get("items", [])
         if not items_raw:
-            print(f"\n  ✓  Reels — sem mais itens.")
+            print(f"\n  ✓  Reels — sem mais itens (lista terminou normalmente).")
             break
 
         # Extrai o objeto "media" de cada item
@@ -644,30 +681,27 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
             break
 
         pagina_r += 1
-        time.sleep(1.0)
+        time.sleep(1.5)
 
     # ── 2. Feed principal — pega videos que nao sao Reels ─
     print(f"\n  📋  Buscando videos do feed principal...")
     max_id = None
     while True:
         print(f"  📄  Feed página {pagina}...", end="\r")
-        try:
-            params = {"count": 50, "target_user_id": user_id}
-            if max_id:
-                params["max_id"] = max_id
-            r = session.get(
-                f"https://www.instagram.com/api/v1/feed/user/{user_id}/",
-                params=params,
-                timeout=30,
-            )
-            j = r.json()
-        except Exception as e:
-            print(f"\n  ⚠️  Erro feed página {pagina}: {e}")
+        params = {"count": 50, "target_user_id": user_id}
+        if max_id:
+            params["max_id"] = max_id
+
+        j = _requisicao_ig(
+            session, "GET", f"https://www.instagram.com/api/v1/feed/user/{user_id}/",
+            f"Feed pagina {pagina}", params=params,
+        )
+        if j is None:
             break
 
         items = j.get("items", [])
         if not items:
-            print(f"\n  ✓  Feed principal completo.")
+            print(f"\n  ✓  Feed principal completo (lista terminou normalmente).")
             break
 
         parar_data, parar_max = _processar_items(items)
@@ -680,7 +714,7 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
             print(f"\n  ✓  Feed completo — {pagina} página(s).")
             break
         pagina += 1
-        time.sleep(1.0)
+        time.sleep(1.5)
 
     print(f"\n  📊  Total de URLs coletadas: {len(urls_video)}")
     return urls_video
@@ -1695,6 +1729,8 @@ def main():
             print(NEGRITO(CIANO(f"\n  [{i}/{len(lote)}]  @{item['handle']}")))
             r = baixar_perfil_selenium(item, driver)
             resultados.append(r)
+            if i < len(lote):
+                time.sleep(5)  # pausa entre perfis — reduz risco de rate-limit do Instagram
 
     if driver:
         driver.quit()
