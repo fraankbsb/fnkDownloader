@@ -459,7 +459,8 @@ def _requisicao_ig(session, metodo, url, diag_label, **kwargs):
     rate-limit, sessao expirada) era tratada como "lista de videos acabou",
     mascarando bloqueios como se fossem downloads completos com poucos videos.
     """
-    for tentativa in (1, 2):
+    esperas = (20, 45)  # segundos entre tentativas — 3 tentativas no total
+    for tentativa in range(1, len(esperas) + 2):
         try:
             r = session.request(metodo, url, timeout=30, **kwargs)
         except Exception as e:
@@ -489,11 +490,12 @@ def _requisicao_ig(session, metodo, url, diag_label, **kwargs):
             print(f"\n  ⚠️  {diag_label}: HTTP {r.status_code}.")
             j = None
 
-        if tentativa == 1:
-            print(f"     Pode ser rate-limit temporario do Instagram — tentando de novo em 20s...")
-            time.sleep(20)
+        if tentativa <= len(esperas):
+            espera = esperas[tentativa - 1]
+            print(f"     Pode ser rate-limit temporario do Instagram — tentando de novo em {espera}s...")
+            time.sleep(espera)
 
-    print(f"  ❌  {diag_label}: falhou apos 2 tentativas — parando aqui (NAO significa que a lista terminou).")
+    print(f"  ❌  {diag_label}: falhou apos {len(esperas)+1} tentativas — parando aqui (NAO significa que a lista terminou).")
     return None
 
 
@@ -532,6 +534,13 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
         "Origin":          "https://www.instagram.com",
     })
     session.cookies.update(cookies)
+
+    # Instagram exige o cookie csrftoken tambem como header X-CSRFToken em
+    # requisicoes POST (protecao CSRF) — sem isso, endpoints POST como
+    # /api/v1/clips/user/ retornam HTTP 400 mesmo com sessao valida. GET nao
+    # exige, por isso o feed as vezes funciona mesmo sem isso e o clips nao.
+    if cookies.get("csrftoken"):
+        session.headers["X-CSRFToken"] = cookies["csrftoken"]
 
     # Pega o user_id do perfil — tenta varios endpoints
     print(f"  🔎  Buscando user_id de @{handle}...")
@@ -721,7 +730,7 @@ def extrair_urls_videos(driver, handle, d_ini=None, d_fim=None, max_videos=None)
             break
 
         pagina_r += 1
-        time.sleep(1.5)
+        time.sleep(2.5)
 
     # ── 2. Feed principal — pega videos que nao sao Reels ─
     print(f"\n  📋  Buscando videos do feed principal...")
