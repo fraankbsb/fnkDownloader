@@ -65,10 +65,27 @@ launcher + releases no GitHub:
   mesmos discos — deu `FileNotFoundError: D:\` no PC que so tem C:.
 - Chrome usa perfil persistente por rede (`chrome_profiles/<rede>/`) —
   loga uma vez, sessao fica salva pras proximas execucoes (sem repetir login).
-  Tambem esta no `.gitignore` (equivale a credencial).
+  Tambem esta no `.gitignore` (equivale a credencial). Se o Chrome nao abrir
+  ("session not created: Chrome instance exited"), geralmente e um
+  `chromedriver.exe` orfao de execucao anterior segurando o perfil —
+  `iniciar_chrome()` mata processos `chromedriver.exe` (nunca janelas normais
+  do usuario) e tenta 1x de novo automaticamente antes de desistir.
 - Extracao de videos (Instagram e Facebook) cai pra cookies da sessao viva do
   Chrome (`driver.get_cookies()`) quando o arquivo `cookies/<rede>_cookies.txt`
-  nao existe — nao depende só do arquivo manual.
+  nao existe — nao depende só do arquivo manual. Cookies exportados manualmente
+  (extensao "Get cookies.txt LOCALLY" no Chrome, logado em instagram.com ou
+  facebook.com → Export → salvar como `cookies/instagram_cookies.txt` /
+  `cookies/facebook_cookies.txt`) tendem a ser mais completos/estaveis que a
+  sessao do Selenium e sao tentados primeiro. Expiram com o tempo — se voltar
+  erro de cookies invalidos, e so reexportar.
+- Erros nao tratados (crash) sao salvos automaticamente em
+  `erros/erro_AAAA-MM-DD_HHMMSS.txt` (alem de aparecer no console) — pasta
+  local, no `.gitignore`, nao versionada.
+- Qualidade de download: NUNCA restringir a busca de formato a `ext=mp4` no
+  yt-dlp (`-f bestvideo[ext=mp4]+...`) — a melhor qualidade do YouTube em
+  particular costuma vir em WebM, nao mp4. Usar sempre
+  `-f bestvideo+bestaudio/best` (sem restricao de ext) e deixar
+  `--merge-output-format mp4` cuidar do container final.
 
 ## Redes suportadas (iniciar_download.py)
 - Instagram: Selenium + requests via API privada. Cookies em
@@ -77,10 +94,16 @@ launcher + releases no GitHub:
   "items" (rate-limit, checkpoint, sessao expirada) parece igual a "lista
   acabou" se nao for tratada — foi a causa de downloads incompletos/perfis
   falhando em lote. `_requisicao_ig()` detecta isso (HTTP != 200, status !=
-  "ok", resposta nao-JSON), tenta de novo 1x apos 20s, e so entao desiste
-  com aviso explicito. Ha pausa de 5s entre perfis no loop principal e 1.5s
-  entre paginas — reduz (nao elimina) risco de bloqueio ao rodar varios
-  perfis no mesmo lote.
+  "ok", resposta nao-JSON), tenta de novo ate 2x mais (20s, depois 45s), e so
+  entao desiste com aviso explicito. HTTP 429 falha na hora sem retry (rate
+  limit real do Instagram, esperar minutos/horas nao segundos). Ha pausa de
+  5s entre perfis no loop principal e 2.5s entre paginas — reduz (nao
+  elimina) risco de bloqueio ao rodar varios perfis no mesmo lote.
+  **HTTP 400 no endpoint de clips/reels** (diferente do 429) e sintoma de
+  faltar o header `X-CSRFToken` nas requisicoes POST — Instagram exige o
+  cookie `csrftoken` tambem como header em POST (GET nao exige, por isso o
+  feed as vezes funciona mais paginas que o reels antes de falhar). A sessao
+  ja seta esse header automaticamente a partir do cookie.
 - Facebook: so REELS (nao "todos os videos" — yt-dlp nao tem extrator de
   listagem de pagina do Facebook, so de reel individual `facebook.com/reel/<id>`).
   Coleta via Selenium rolando a aba `/reels` (scrollIntoView no ultimo reel
